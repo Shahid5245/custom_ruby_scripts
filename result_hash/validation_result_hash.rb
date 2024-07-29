@@ -1,4 +1,4 @@
-require_relative 'result_hash_v6_script'
+# require_relative 'result_hash_v6_script'
 
 def initial_result_hash
   @yellow = "\033[33m"
