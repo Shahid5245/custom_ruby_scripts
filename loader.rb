@@ -1,4 +1,4 @@
-require 'open-uri'
+# require 'open-uri'
 
 GITHUB_BASE_URL = "https://raw.githubusercontent.com/Shahid5245/custom_ruby_scripts/main/"
 
