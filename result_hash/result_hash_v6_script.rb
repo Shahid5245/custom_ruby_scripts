@@ -73,7 +73,7 @@ class ResultHash
       result_hash[source_name]['processed'] = latest_meta_detail.processed
       result_hash.delete(source_name) if rm_proper_source_from_result && result_hash[source_name]['difference'] == 0 && result_hash[source_name]['processed'] == true
     end; 1
-    result_hash = result_hash.to_json
+    result_hash
   end
 
   def self.result_hash_for_cluster_doc_pr(tenant, input_source_name = nil)
@@ -144,7 +144,7 @@ class ResultHash
       result_hash[source_name]['processed'] = latest_meta_detail.processed
       result_hash.delete(source_name) if rm_proper_source_from_result && result_hash[source_name]['difference'] == 0 && result_hash[source_name]['processed'] == true
     end; 1
-    result_hash = result_hash.to_json
+    result_hash
   end
 
   def self.result_hash_for_single_doc_org(tenant, input_source_name = nil)
@@ -212,7 +212,7 @@ class ResultHash
       result_hash[source_name]['processed'] = latest_meta_detail.processed
       result_hash.delete(source_name) if rm_proper_source_from_result && result_hash[source_name]['difference'] == 0 && result_hash[source_name]['processed'] == true
     end; 1
-    result_hash = result_hash.to_json
+    result_hash
   end
 
   def self.result_hash_for_single_doc_pr(tenant, input_source_name = nil)
@@ -281,7 +281,7 @@ class ResultHash
       result_hash[source_name]['processed'] = latest_meta_detail.processed
       result_hash.delete(source_name) if rm_proper_source_from_result && result_hash[source_name]['difference'] == 0 && result_hash[source_name]['processed'] == true
     end; 1
-    result_hash = result_hash.to_json
+    result_hash
   end
 
 end

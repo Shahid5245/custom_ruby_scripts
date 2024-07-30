@@ -60,11 +60,32 @@ def initial_result_hash
       ResultHash.result_hash_for_cluster_doc_org(tenant, source)
     end
     final_result_hash = tenant_validation(tenant, class_of_result_hash)
+    
+  elsif entity == 2
+    tenant = choosing_tenants
+    class_of_result_hash = lambda do |tenant, source = nil|
+      ResultHash.result_hash_for_single_doc_org(tenant, source)
+    end
+    final_result_hash = tenant_validation(tenant, class_of_result_hash)
+
+  elsif entity == 3
+    tenant = choosing_tenants
+    class_of_result_hash = lambda do |tenant, source = nil|
+      ResultHash.result_hash_for_cluster_doc_pr(tenant, source)
+    end
+    final_result_hash = tenant_validation(tenant, class_of_result_hash)
+
+  elsif entity == 4 
+    tenant = choosing_tenants
+    class_of_result_hash = lambda do |tenant, source = nil|
+      ResultHash.result_hash_for_single_doc_pr(tenant, source)
+    end
+    final_result_hash = tenant_validation(tenant, class_of_result_hash)
 
   else
     puts "Wrong argument"
   end
-  puts final_result_hash
+  puts JSON.generate(final_result_hash) if final_result_hash.present?
 end
 
 # initial_result_hash
