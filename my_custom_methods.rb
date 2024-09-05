@@ -1,8 +1,4 @@
-def latest_meta_detail
-  MetaDetail.order(:created_at).last
-end
 
-#-------------------------------------------------------------------------------------
 
 def fuzzy_org_match(org_aff_id)
   org_aff  = OrganizationAffiliation.find_by(org_aff_id)
@@ -112,20 +108,7 @@ end
 
 #-------------------------------------------------------------------------------------
 
-def send_indexing
-  Stat::StatLogCheck.start_send_to_indexing_queue(MetaDetail.order(:created_at).last)
-end
-
-#-------------------------------------------------------------------------------------
-
-def send_stat_log
-  Stat::StatLogCheck.send_stat_logs(MetaDetail.order(:created_at).last)
-end
-
-#-------------------------------------------------------------------------------------
-
 def create_all_indexes(all=nil)
-
   es1_index = Chewy.client.indices
   es2_index = ELASTICSEARCH_CLIENT.indices
   tenant_names = Utils::Property.new.get_tenants.map { |i| i['key'] }.reject{ |i| i == "qa-tenant" && all==nil  }
@@ -214,3 +197,58 @@ def get_time_taken(meta_detail)
   puts "Time taken for Indexing   : #{index_seconds.is_a?(Float) ? (index_seconds.to_f/60.00).round(1) : index_seconds} min"
   puts "Overall time taken        : #{(overall_seconds.to_f/60.00).round(1)} min"
 end
+
+#-------------------------------------------------------------------------------------
+
+def send_indexing
+  Stat::StatLogCheck.start_send_to_indexing_queue(MetaDetail.order(:created_at).last)
+end
+
+#-------------------------------------------------------------------------------------
+
+def send_stat_log
+  Stat::StatLogCheck.send_stat_logs(MetaDetail.order(:created_at).last)
+end
+
+#-------------------------------------------------------------------------------------
+
+def latest_meta_detail
+  MetaDetail.order(:created_at).last
+end
+
+def pluck_st_id(db_table_name)
+  db_table_name.pluck(:stableId)
+end
+
+def pluck_rowhash(db_table_name)
+  db_table_name.pluck(:rowHash)
+end
+
+def order(db_table_name)
+  db_table_name.order(:created_at)
+end
+
+def latest(db_table_name)
+  count = block_given? ? yield : 1
+  db_table_name.order(:created_at).last(count)
+end
+
+def group_st_id(db_table_name)
+  column_name, count = block_given? ? yield : :stableId
+  db_table_name.group(column_name).order("count_all asc").count
+end
+
+def fetch_location(root_table_id)
+  if pr_obj = Practitioner.find_by(id:root_table_id)
+    pr_obj.practitioner_role.locations
+  elsif pr_role_obj = PractitionerRole.find_by(id:root_table_id)
+    pr_role_obj.locations
+  elsif org_obj = OrganizationAffiliation.find_by(id:root_table_id)
+    org_obj.locations
+  elsif fac_obj = Facility.find_by(id:root_table_id)
+    fac_obj.organization_affiliation.locations
+  end
+end
+
+
+#-------------------------------------------------------------------------------------
