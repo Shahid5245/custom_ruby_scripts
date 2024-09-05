@@ -1,11 +1,13 @@
-  def latest_meta_detail
-    MetaDetail.order(:created_at).last
-  end
+def latest_meta_detail
+  MetaDetail.order(:created_at).last
+end
 
 #-------------------------------------------------------------------------------------
 
 def fuzzy_org_match(org_aff_id)
-  org_aff  = OrganizationAffiliation.find org_aff_id
+  org_aff  = OrganizationAffiliation.find_by(org_aff_id)
+  return "OrganizationAffiliation record not found" unless org_aff.present?
+
   location = org_aff.locations.first
   npi_identifier = Utils::RecordIdentifiers.new.fetch_identifier(org_aff.facility, 'NPI')[0]
   dea_number_identifier = Utils::RecordIdentifiers.new.fetch_identifier_value(org_aff.facility.identifier, 'DEA')[0]
@@ -56,46 +58,68 @@ end
 
 #-------------------------------------------------------------------------------------
 
-
-def get_delete_org_ids(root_ids_to_be_deleted, tenant )
-  # tenant =tenant['key']
-  tenant
-  root_ids_to_be_deleteds = root_ids_to_be_deleted
-  org_aff_data={}
-  root_ids_to_be_deleteds.each do |org_aff_id|
-    OrganizationAffiliationSingleDoc.index_name("organization_affiliation_#{tenant}_rw")
-    es_org = OrganizationAffiliationSingleDoc.find(org_aff_id) rescue nil
-    stable_id = es_org.present? ? es_org.as_json['_data']['_source']['stableId'] : nil
-    stable_id = OrganizationAffiliation.find_by(id: org_aff_id)&.stableId unless stable_id.present?
-    org_ids_for_delete = [org_aff_id]
-    if stable_id.present?
-      org_aff_st_ids = OrganizationAffiliation.where(stableId: stable_id)
-
-      org_aff_data[org_aff_id] = {} unless org_aff_data[org_aff_id]
-
-      source_ids = org_aff_st_ids.pluck(:source_id).uniq
-      source_names = Source.where(id: source_ids).pluck(:name)
-
-      org_aff_data[org_aff_id]['source'] = {source_ids => source_names}
-
-      tenant_source_names = Utils::Property.new.get_source_by_tenant(tenant, false)
-      tenant_include_source_names = Utils::Property.new.get_include_source_by_tenant(tenant)
-      tenant_include_source_ids = Source.where(name: tenant_include_source_names).pluck(:id)
-      if tenant_source_names.present? && source_names.present? && tenant_source_names.exclude?('all')
-        unless source_names.any? { |source| tenant_source_names.include?(source) }
-          org_ids_for_delete += org_aff_st_ids.where(source_id: tenant_include_source_ids).pluck(:id)
-        end
-      end
-      org_aff_data[org_aff_id]['org_ids_for_delete'] = org_ids_for_delete
-    end
+def fuzzy_pr_match(practitioner_id)
+  practitioner = Practitioner.find_by(id:practitioner_id) 
+  unless practitioner.present?
+    pr_role_obj = PractitionerRole.find practitioner_id
+    practitioner = pr_role_obj.practitioner
+    return "Practitioner record not found" unless practitioner.present?
   end
-  org_aff_data
+
+  location = practitioner.practitioner_role.locations.first
+  pr_name = practitioner.name.first
+  npi_identifier = Utils::RecordIdentifiers.new.fetch_identifier(practitioner, 'NPI')[0]
+  dea_number_identifier = Utils::RecordIdentifiers.new.fetch_identifier_value(practitioner.identifier, 'DEA')[0]
+  license_number_identifier = Utils::RecordIdentifiers.new.split_license_value(practitioner.identifier, 'LN')
+  license_state_identifier = license_number_identifier.present? ? Utils::RecordIdentifiers.new.fetch_license_state_pr(practitioner) : ''
+  tax_number_identifier = Utils::RecordIdentifiers.new.fetch_identifier_value(practitioner.identifier, 'TAX')
+  medicare_number_identifier = Utils::RecordIdentifiers.new.fetch_identifier_value(practitioner.identifier, 'MCR')
+  medicaid_number_identifier = Utils::RecordIdentifiers.new.fetch_identifier_value(practitioner.identifier, 'MCD')
+
+  template_search_params = {
+    "id": 'search-template',
+    "params": {
+      'size': 10000,
+      'min_score': ENV['CLARITY_PROVIDER_TEMPLATE_MIN_SCORE'].to_i,
+      'npi': (npi_identifier.present? ? npi_identifier : ''),
+      'firstname': (pr_name['given'].join(', ').gsub("'",'') rescue ''),
+      'lastname': (pr_name['family'].gsub("'",'') rescue ''),
+      'middlename': (pr_name['middle'].gsub("'",'') rescue ''),
+      'fullname': (pr_name['text'].gsub("'",'') rescue ''),
+      's_state': (location.address[1]['final_address']['state'] rescue ''),
+      's_city': (location.address[1]['final_address']['city'] rescue ''),
+      's_zip': (location.address[1]['final_address']['postalCode'] rescue ''),
+      's_streetname': (location.address[1]['final_address']['streetName'] rescue ''),
+      's_streetnumber': (location.address[1]['final_address']['primaryNumber'] rescue ''),
+      's_secondarydesignator': (location.address[1]['final_address']['secondaryDesignator'] rescue ''),
+      's_secondarynumber': (location.address[1]['final_address']['secondaryNumber'] rescue ''),
+      'taxonomylicense': '',
+      'dea_number': ((dea_number_identifier.present? ? dea_number_identifier : '') rescue ''),
+      'license_state': (license_state_identifier.present? ? license_state_identifier : ''),
+      'license_number_tokens': ((license_number_identifier.present? ? Utils::RecordIdentifiers.new.generate_tokens(license_number_identifier) : '') rescue ''),
+      'tax_number_tokens': ((tax_number_identifier.present? ? Utils::RecordIdentifiers.new.generate_tokens(tax_number_identifier) : '') rescue ''),
+      'medicare_number_tokens': ((medicare_number_identifier.present? ? Utils::RecordIdentifiers.new.generate_tokens(medicare_number_identifier) : '') rescue ''),
+      'medicaid_number_tokens': ((medicaid_number_identifier.present? ? Utils::RecordIdentifiers.new.generate_tokens(medicaid_number_identifier) : '') rescue ''),
+      'birth_date': (practitioner.birthDate rescue '')
+    }
+  }
+  res = ELASTICSEARCH_CLIENT.search_template(index: ENV['PRACTITIONER_ROLE_MASTER_INDEX'], body: template_search_params)
+
+  json_template = template_search_params.to_json
+  puts json_template
+  return {"matched_es_count"=> res["hits"]["total"]["value"]}
 end
 
 #-------------------------------------------------------------------------------------
 
 def send_indexing
   Stat::StatLogCheck.start_send_to_indexing_queue(MetaDetail.order(:created_at).last)
+end
+
+#-------------------------------------------------------------------------------------
+
+def send_stat_log
+  Stat::StatLogCheck.send_stat_logs(MetaDetail.order(:created_at).last)
 end
 
 #-------------------------------------------------------------------------------------
@@ -168,4 +192,25 @@ def create_all_indexes(all=nil)
     end
   end
 
+end
+
+#-------------------------------------------------------------------------------------
+
+def get_time_taken(meta_detail)
+  meta_detail_id = meta_detail.id
+  pr_count = PractitionerRole.where(meta_detail_id: meta_detail_id).count
+  ingest_seconds = (PractitionerRole.where(meta_detail_id: meta_detail_id).order('updated_at').last.updated_at.in_time_zone('Asia/Kolkata')) - (PractitionerRole.where(meta_detail_id: meta_detail_id).order('updated_at').first.updated_at.in_time_zone('Asia/Kolkata')) rescue "Processing not completed"
+  cluster_seconds = (StatLog.where(meta_detail_id: meta_detail_id, ingested: true).order('ingested_at').last.ingested_at.in_time_zone('Asia/Kolkata')) - (StatLog.where(meta_detail_id: meta_detail_id, ingested: true).order('ingested_at').first.ingested_at.in_time_zone('Asia/Kolkata')) rescue "Processing not completed"
+  index_seconds = (StatLog.where(meta_detail_id: meta_detail_id, indexed: true).order('indexed_at').last.indexed_at.in_time_zone('Asia/Kolkata')) - (StatLog.where(meta_detail_id: meta_detail_id, indexed: true).order('indexed_at').first.indexed_at.in_time_zone('Asia/Kolkata')) rescue "Processing not completed"
+  overall_seconds = 0.0
+  overall_seconds += ingest_seconds if ingest_seconds.is_a?(Float)
+  overall_seconds += cluster_seconds if cluster_seconds.is_a?(Float)
+  overall_seconds += index_seconds if index_seconds.is_a?(Float)
+
+  puts "Souce name                : #{meta_detail.source.name}"
+  puts "Total records count       : #{pr_count}/#{meta_detail.total_records}"
+  puts "Time taken for Ingestion  : #{(ingest_seconds.to_f/60.00).round(1)} min"
+  puts "Time taken for Clustering : #{cluster_seconds.is_a?(Float) ? (cluster_seconds.to_f/60.00).round(1) : cluster_seconds} min"
+  puts "Time taken for Indexing   : #{index_seconds.is_a?(Float) ? (index_seconds.to_f/60.00).round(1) : index_seconds} min"
+  puts "Overall time taken        : #{(overall_seconds.to_f/60.00).round(1)} min"
 end
