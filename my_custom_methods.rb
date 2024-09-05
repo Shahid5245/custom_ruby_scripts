@@ -213,7 +213,8 @@ end
 #-------------------------------------------------------------------------------------
 
 def latest_meta_detail
-  MetaDetail.order(:created_at).last
+  count = block_given? ? yield : 1
+  MetaDetail.order(:created_at).last(count)
 end
 
 def pluck_st_id(db_table_name)
