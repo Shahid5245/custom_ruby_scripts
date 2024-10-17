@@ -1,8 +1,15 @@
 
 
 def fuzzy_org_match(org_aff_id)
-  org_aff  = OrganizationAffiliation.find_by(org_aff_id)
-  return "OrganizationAffiliation record not found" unless org_aff.present?
+
+  if org_aff = OrganizationAffiliation.find_by(id: org_aff_id)
+  elsif fac = Facility.find_by(id: org_aff_id)
+    org_aff = fac.organization_affiliation
+  elsif org = OrganizationAffiliation.find_by(stableId: org_aff_id)
+    org_aff = org
+  else
+    return "Given id is not found in the database"
+  end
 
   location = org_aff.locations.first
   npi_identifier = Utils::RecordIdentifiers.new.fetch_identifier(org_aff.facility, 'NPI')[0]
@@ -20,7 +27,7 @@ def fuzzy_org_match(org_aff_id)
     "id": 'search-template-org',
     "params": {
       'size': 10000,
-      'min_score': ENV['CLARITY_FACILITY_TEMPLATE_MIN_SCORE'].to_i,
+      'min_score': Utils::Property.new.fetch_template_min_score('clarity_template_score', 'facility_score'),
       'npi': (npi_identifier.present? ? npi_identifier : ''),
       'name': (org_aff.facility.name rescue ''),
       'name_exact': (formated_name rescue ''),
@@ -54,16 +61,23 @@ end
 
 #-------------------------------------------------------------------------------------
 
-def fuzzy_pr_match(practitioner_id)
-  practitioner = Practitioner.find_by(id:practitioner_id) 
-  unless practitioner.present?
-    pr_role_obj = PractitionerRole.find practitioner_id
-    practitioner = pr_role_obj.practitioner
-    return "Practitioner record not found" unless practitioner.present?
+
+def fuzzy_pr_match(pr_role_id)
+
+  if pr_role = PractitionerRole.find_by(id: pr_role_id)
+    practitioner = pr_role.practitioner
+  elsif pr = Practitioner.find_by(id: pr_role_id)
+    practitioner = pr
+  elsif pr_st = Practitioner.find_by(stableId: pr_role_id)
+    practitioner = pr_st
+  else
+    return "Given id is not found in the database"
   end
 
   location = practitioner.practitioner_role.locations.first
-  pr_name = practitioner.name.first
+  ln_identifier = ''
+  stable_ids = practitioner.stableId
+
   npi_identifier = Utils::RecordIdentifiers.new.fetch_identifier(practitioner, 'NPI')[0]
   dea_number_identifier = Utils::RecordIdentifiers.new.fetch_identifier_value(practitioner.identifier, 'DEA')[0]
   license_number_identifier = Utils::RecordIdentifiers.new.split_license_value(practitioner.identifier, 'LN')
@@ -76,12 +90,12 @@ def fuzzy_pr_match(practitioner_id)
     "id": 'search-template',
     "params": {
       'size': 10000,
-      'min_score': ENV['CLARITY_PROVIDER_TEMPLATE_MIN_SCORE'].to_i,
+      'min_score': Utils::Property.new.fetch_template_min_score('clarity_template_score', 'provider_score'),
       'npi': (npi_identifier.present? ? npi_identifier : ''),
-      'firstname': (pr_name['given'].join(', ').gsub("'",'') rescue ''),
-      'lastname': (pr_name['family'].gsub("'",'') rescue ''),
-      'middlename': (pr_name['middle'].gsub("'",'') rescue ''),
-      'fullname': (pr_name['text'].gsub("'",'') rescue ''),
+      'firstname': (practitioner.name[0]['given'].join(', ') rescue ''),
+      'lastname': (practitioner.name[0]['family'] rescue ''),
+      'middlename': (practitioner.name[0]['middle'] rescue ''),
+      'fullname': (practitioner.name[0]['text'] rescue ''),
       's_state': (location.address[1]['final_address']['state'] rescue ''),
       's_city': (location.address[1]['final_address']['city'] rescue ''),
       's_zip': (location.address[1]['final_address']['postalCode'] rescue ''),
@@ -89,7 +103,7 @@ def fuzzy_pr_match(practitioner_id)
       's_streetnumber': (location.address[1]['final_address']['primaryNumber'] rescue ''),
       's_secondarydesignator': (location.address[1]['final_address']['secondaryDesignator'] rescue ''),
       's_secondarynumber': (location.address[1]['final_address']['secondaryNumber'] rescue ''),
-      'taxonomylicense': '',
+      'taxonomylicense': ln_identifier,
       'dea_number': ((dea_number_identifier.present? ? dea_number_identifier : '') rescue ''),
       'license_state': (license_state_identifier.present? ? license_state_identifier : ''),
       'license_number_tokens': ((license_number_identifier.present? ? Utils::RecordIdentifiers.new.generate_tokens(license_number_identifier) : '') rescue ''),
@@ -97,10 +111,10 @@ def fuzzy_pr_match(practitioner_id)
       'medicare_number_tokens': ((medicare_number_identifier.present? ? Utils::RecordIdentifiers.new.generate_tokens(medicare_number_identifier) : '') rescue ''),
       'medicaid_number_tokens': ((medicaid_number_identifier.present? ? Utils::RecordIdentifiers.new.generate_tokens(medicaid_number_identifier) : '') rescue ''),
       'birth_date': (practitioner.birthDate rescue '')
-    }
+      }
   }
-  res = ELASTICSEARCH_CLIENT.search_template(index: ENV['PRACTITIONER_ROLE_MASTER_INDEX'], body: template_search_params)
 
+  res = ELASTICSEARCH_CLIENT.search_template(index: ENV['PRACTITIONER_ROLE_MASTER_INDEX'], body: template_search_params)
   json_template = template_search_params.to_json
   puts json_template
   return {"matched_es_count"=> res["hits"]["total"]["value"]}
@@ -250,6 +264,173 @@ def fetch_location(root_table_id)
     fac_obj.organization_affiliation.locations
   end
 end
+
+
+#-------------------------------------------------------------------------------------
+
+def reset_api
+  if Rails.env.development?
+    response = HTTParty.post('http://localhost:3000/api/v1/reset')
+  end
+  puts response.body
+end
+
+#-------------------------------------------------------------------------------------
+
+def consume_api(json)
+  if Rails.env.development?
+    response = HTTParty.post('http://localhost:3000/api/v1/consume', {body: JSON.generate(json)})
+  end
+  response_body = JSON.parse(response)
+end
+
+#-------------------------------------------------------------------------------------
+
+def puts_message(header, messages_arr=nil)
+  yellow = "\033[33m"
+  reset = "\033[0m"
+  puts "\n#{yellow}#{header}:#{reset}"
+  return unless messages_arr.present?
+  for i in 0..messages_arr.size-1
+    puts "#{i+1}. #{messages_arr[i]}"
+  end
+end
+
+
+def create_trigger_message
+  puts_message("Choose Entity", ['Facility', 'Provider', 'Nppes'])
+  entity = Integer(gets())
+  if entity == 1
+    source = 'wa-amerigroup'
+    profile = PROFILE_URL['organization_affiliation']
+    batchId = "facility:#{SecureRandom.uuid}"
+  elsif entity == 2
+    source = 'wa-amerigroup'
+    profile = PROFILE_URL['practitioner_role']
+    batchId = "provider:#{SecureRandom.uuid}"
+  
+  elsif entity == 3
+    source = 'us-nppes'
+    profile = PROFILE_URL['nppes_master']
+    batchId = "nppes:#{SecureRandom.uuid}"
+  else
+    return
+  end
+
+  puts_message("Enter Filepath")
+  filepath = gets().chomp
+
+  triger_message = {
+    "meta"=> {
+        "SourceCode"=> source,
+        "SourceFilePath"=> filepath,
+        "profile"=> profile,
+        "batchId"=> batchId
+    },
+    "processRules"=> {
+        "batchSize"=> 1000,
+        "ingestionMode"=> "delta",
+        "forceReMatchOnDupes"=> true
+    }
+  }
+
+  puts_message("Choose the Trigger message type", ["Create trigger message", "Modify trigger message"])
+  trig_mesg_type = Integer(gets())
+
+  if trig_mesg_type == 2
+    puts_message("Choose the Process type", ["Source", "Injestionmode"])
+    modify = Integer(gets())
+    if modify == 1
+      puts_message("Enter Source name")
+      source = gets().chomp
+      triger_message["meta"]["SourceCode"] = source
+    elsif modify == 2
+      puts_message("Choose the Injestionmode type", ["delta", "overwrite", "retirebatch"])
+      injestion_mode = Integer(gets())
+      if injestion_mode == 2
+        triger_message["processRules"]["ingestionMode"] = 'overwrite'
+      elsif injestion_mode == 3
+        triger_message["processRules"]["ingestionMode"] = 'batchswap'
+        triger_message["processRules"]["retireBatchId"] = [batchId]
+      end
+    end
+  end
+
+  puts triger_message.to_json
+end
+
+#-------------------------------------------------------------------------------------
+
+def create_tenant_configs
+  if Rails.env.development?
+    load '/home/shahid/Documents/Clarity_project_files/Query_&_Script/5. Scripts/create_data_source_and_tenant.rb'
+  end
+end;1
+
+#-------------------------------------------------------------------------------------
+
+
+def fetch_matching_st_ids_records_org(stableids='', skip_1_count=false)
+  stable_ids = stableids.present? ? [stableids].flatten : OrganizationAffiliation.pluck(:stableId).uniq
+  result_hash = {}
+
+  stable_ids.each_with_index do |each_st_id, index|
+    org_objects = OrganizationAffiliation.where(stableId: each_st_id)
+    next unless org_objects.present?
+    next if org_objects.count == 1 && skip_1_count == true
+
+    result_hash[each_st_id] ||= {"stableId_count" => '', "name" => [], "locaton_text" => [], "NPI" => [] }
+    result_hash[each_st_id]['stableId_count'] =  org_objects.count
+    org_objects.each do |each_obj|
+      result_hash[each_st_id]['name'] << each_obj.facility.name
+      result_hash[each_st_id]['locaton_text'] << each_obj.locations.last.address[1]['final_address']['text']
+      result_hash[each_st_id]['NPI'] << Utils::RecordIdentifiers.new.fetch_identifier(each_obj.facility, 'NPI')[0]
+    end
+    result_hash[each_st_id]['name'].uniq!&.sort!
+    result_hash[each_st_id]['locaton_text'].uniq!&.sort!
+    result_hash[each_st_id]['NPI'].uniq!&.sort!
+    print "\e[2K\rCheck cluster matching:::#{index + 1}:::#{stable_ids.size}"
+  end;1
+  if result_hash.present?
+    sorted_hash = result_hash.sort_by { |_, value| value["name"].first }.to_h
+    sorted_hash = { "total_uniq_st_count" => stable_ids.count }.merge(sorted_hash)
+  else
+    result_hash['error'] => "stableid not present"
+  end
+  puts sorted_hash.to_json
+end;1
+
+#-------------------------------------------------------------------------------------
+
+
+def fetch_matching_st_ids_records_pr(stableids='', skip_1_count=false)
+  stable_ids = stableids.present? ? [stableids].flatten : Practitioner.pluck(:stableId).uniq
+  result_hash = {}
+  stable_ids.each_with_index do |each_st_id, index|
+    pr_objects = Practitioner.where(stableId: each_st_id)
+    next unless pr_objects.present? 
+    next if pr_objects.count == 1 && skip_1_count == true
+
+    result_hash[each_st_id] ||= {"stableId_count" => '', "name" => [], "locaton_text" => [], "NPI" => [] }
+    result_hash[each_st_id]['stableId_count'] =  pr_objects.count
+    pr_objects.each do |each_obj|
+      result_hash[each_st_id]['name'] << each_obj.name[0]['text']
+      result_hash[each_st_id]['locaton_text'] << each_obj.practitioner_role.locations.last.address[1]['final_address']['text'] rescue nil
+      result_hash[each_st_id]['NPI'] << Utils::RecordIdentifiers.new.fetch_identifier(each_obj, 'NPI')[0]
+    end
+    result_hash[each_st_id]['name'].uniq!&.sort!
+    result_hash[each_st_id]['locaton_text'].uniq!&.sort!
+    result_hash[each_st_id]['NPI']&.uniq!&.sort! rescue nil
+    print "\e[2K\rstable_ids:::#{index + 1}:::#{stable_ids.size}"
+  end;1
+  if result_hash.present?
+    sorted_hash = result_hash.sort_by { |_, value| value["name"].first }.to_h
+    result_hash = { "total_uniq_st_count" => stable_ids.count }.merge(sorted_hash)
+  else
+    result_hash['error'] => "stableid not present"
+  end
+  puts result_hash.to_json
+end;1
 
 
 #-------------------------------------------------------------------------------------
