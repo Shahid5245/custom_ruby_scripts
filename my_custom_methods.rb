@@ -1,5 +1,4 @@
 
-
 def fuzzy_org_match(org_aff_id)
 
   if org_aff = OrganizationAffiliation.find_by(id: org_aff_id)
@@ -61,7 +60,6 @@ end
 
 #-------------------------------------------------------------------------------------
 
-
 def fuzzy_pr_match(pr_role_id)
 
   if pr_role = PractitionerRole.find_by(id: pr_role_id)
@@ -118,6 +116,12 @@ def fuzzy_pr_match(pr_role_id)
   json_template = template_search_params.to_json
   puts json_template
   return {"matched_es_count"=> res["hits"]["total"]["value"]}
+end
+
+#-------------------------------------------------------------------------------------
+
+def send_stat_log
+  Stat::StatLogCheck.send_stat_logs(MetaDetail.order(:created_at).last)
 end
 
 #-------------------------------------------------------------------------------------
