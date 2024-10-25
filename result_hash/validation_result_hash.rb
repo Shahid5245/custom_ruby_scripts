@@ -1,91 +1,53 @@
 # require_relative 'result_hash_v6_script'
 
-def initial_result_hash
+def run_result_hash
   @yellow = "\033[33m"
   @reset = "\033[0m"
-  @tenants = %w[wahbe centerlight riverspring honestmedical mddoh]
+  tenants = Utils::Property.new.get_all_active_tenant_key.reject { |i| i == 'qa-tenant' }
   final_result_hash = ""
-
-
-  puts "\n#{@yellow}Choose the Entity:#{@reset}"
-  puts "1.Facility"
-  puts "2.OrganizationAffiliation"
-  puts "3.Provider"
-  puts "4.PractitionerRole"
-
-  entity = gets.to_i
-
-  def choosing_tenants
-    puts "\n#{@yellow}Proceed the tenants:#{@reset}"
-    puts "1.All tenants"
-    puts "2.One tenant"
-    puts "3.Praticular tenant source"
-    tenant = gets.to_i
-  end
-
-  def print_tenants
-    @tenants.each_with_index do |each_tenant, index|
-      puts "#{index+1}.#{each_tenant.capitalize}"
-    end 
-  end
-
-  def tenant_validation(tenant, class_of_result_hash)
-    result_array = ""
-    if tenant == 1
-      result_array = []
-      @tenants.each do |each_tent|
-        puts "\n #{each_tent}:"
-        result_array << class_of_result_hash.call(each_tent)
-      end;1
-    elsif tenant == 2
-      puts "\n#{@yellow}Choose tenant#{@reset}"
-      print_tenants
-      tenant = gets.to_i - 1
-      result_array =  class_of_result_hash.call(@tenants[tenant])
   
-    elsif tenant == 3
-      puts "#{@yellow}write a source name with tenant : ex:('wahbe', 'wa-amerigroup')#{@reset}"
-      tenant, source = gets.chomp.split(",").map(&:strip)
-      result_array =  class_of_result_hash.call(tenant, source)
+  # Display options
+  display_options = ->(title, options) do
+    puts "\n#{@yellow}#{title}:#{@reset}"
+    options.each_with_index {|o,i| puts "#{i+1}. #{o.capitalize}"}
+  end
+
+  display_options.call("Choose the Entity", ["Facility", "OrganizationAffiliation", "Provider", "PractitionerRole"])
+  entity_choice = gets.to_i
+  return puts "Wrong argument" unless entity_choice <= 4
+
+  display_options.call("Choose the Tenant process", ["All tenants", "One tenant", "Particular tenant source"])
+  tenant_choice = gets.to_i
+  return puts "Wrong argument" unless tenant_choice <= 3
+
+
+  # create an instance varible of result_hash method into an array
+  instance_of_all_result_hashes = [
+    ->(tenant, source = nil) { ResultHash.result_hash_for_cluster_doc_org(tenant, source) },
+    ->(tenant, source = nil) { ResultHash.result_hash_for_single_doc_org(tenant, source) },
+    ->(tenant, source = nil) { ResultHash.result_hash_for_cluster_doc_pr(tenant, source) },
+    ->(tenant, source = nil) { ResultHash.result_hash_for_single_doc_pr(tenant, source) }
+  ]
+
+  # execute the result_hash based on the condition
+  validate_tenant_and_execute_resulthash = lambda do |tenant_choice, instance_of_result_hash|
+    case tenant_choice
+    when 1
+      tenants.map { |tenant| puts "\n #{tenant}:"; instance_of_result_hash.call(tenant) }
+    when 2
+      display_options.call("Choose tenant", tenants)
+      selected_tenant = tenants[gets.to_i - 1]
+      instance_of_result_hash.call(selected_tenant)
+    when 3
+      puts "#{yellow}Enter source name with tenant (e.g., 'wahbe, wa-amerigroup'):#{reset}"
+      tenant, source = gets.chomp.split(',').map(&:strip)
+      instance_of_result_hash.call(tenant, source)
     else
-      return "Wrong argument"
+      puts "Wrong argument"
     end
-    result_array
   end
 
-  
-  if entity == 1 
-    tenant = choosing_tenants
-    class_of_result_hash = lambda do |tenant, source = nil|
-      ResultHash.result_hash_for_cluster_doc_org(tenant, source)
-    end
-    final_result_hash = tenant_validation(tenant, class_of_result_hash)
-    
-  elsif entity == 2
-    tenant = choosing_tenants
-    class_of_result_hash = lambda do |tenant, source = nil|
-      ResultHash.result_hash_for_single_doc_org(tenant, source)
-    end
-    final_result_hash = tenant_validation(tenant, class_of_result_hash)
-
-  elsif entity == 3
-    tenant = choosing_tenants
-    class_of_result_hash = lambda do |tenant, source = nil|
-      ResultHash.result_hash_for_cluster_doc_pr(tenant, source)
-    end
-    final_result_hash = tenant_validation(tenant, class_of_result_hash)
-
-  elsif entity == 4 
-    tenant = choosing_tenants
-    class_of_result_hash = lambda do |tenant, source = nil|
-      ResultHash.result_hash_for_single_doc_pr(tenant, source)
-    end
-    final_result_hash = tenant_validation(tenant, class_of_result_hash)
-
-  else
-    puts "Wrong argument"
-  end
+  # passing the required resulthash to the validate 
+  final_result_hash = validate_tenant_and_execute_resulthash.call(tenant_choice, instance_of_all_result_hashes[entity_choice - 1])
   puts JSON.generate(final_result_hash) if final_result_hash.present?
 end
-
-# initial_result_hash
