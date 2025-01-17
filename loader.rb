@@ -20,4 +20,4 @@ load_choice = gets.to_i
 files_to_load = load_choice == 2 ? [files_to_load.last] : files_to_load
 
 files_to_load.each { |filename| eval(URI.open(git_base_url + filename).read) }
-
+nil
