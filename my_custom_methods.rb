@@ -126,75 +126,39 @@ end
 
 #-------------------------------------------------------------------------------------
 
-def create_all_indexes(all=nil)
+def create_all_indexes
   es1_index = Chewy.client.indices
   es2_index = ELASTICSEARCH_CLIENT.indices
-  tenant_names = Utils::Property.new.get_tenants.map { |i| i['key'] }.reject{ |i| i == "qa-tenant" && all==nil  }
+  tenant_names = Utils::Property.new.get_all_active_tenant_key - ["qa-tenant"]
+  index_name_and_class = {
+    "es_1" => {
+      "practitioner_role_" => PractitionerRolesSingleDoc, "provider_" => PractitionerRolesTenantV3,
+      "organization_affiliation_" => OrganizationAffiliationSingleDoc, "facility_" => OrganizationAffiliationTenantV3,
+      "practice_" => OrganizationAffiliationTenantV3, "facility_by_location_" => FacilityByLocationIndex, "nppes_master" => NppesMasterIndex
+    },
+    "es_2" => {
+      "organization_affiliation" => :OrganizationAffiliationIndex, "practitioner_roles" => :PractitionerRolesIndex, "standardized_address" => :StandardizedAddressIndex,
+      "organization_affiliation_provider_group" => :OrgProviderGroupIndex, "practitioner_role_provider_group" => :PrProviderGroupIndex
+    }
+  }
 
-  unless es2_index.exists(index: 'organization_affiliation')
-    ElasticIndex::OrganizationAffiliationIndex.create
-  end
-
-  unless es2_index.exists(index: 'practitioner_roles')
-    ElasticIndex::PractitionerRolesIndex.create
-  end
-
-  unless es2_index.exists(index: 'organization_affiliation_provider_group')
-    ElasticIndex::OrgProviderGroupIndex.create 
-  end
-
-  unless es2_index.exists(index: 'practitioner_role_provider_group')
-    ElasticIndex::PrProviderGroupIndex.create 
+  index_name_and_class["es_2"].each do |index_name, klass|
+    unless es2_index.exists(index: index_name)
+      ElasticIndex::const_get(klass).create
+    end
   end
 
   tenant_names.each do |each_tenant|
-    practitioner_role_index_name = "practitioner_role_#{each_tenant}_rw"
-    unless es1_index.exists(index: practitioner_role_index_name)
-      PractitionerRolesSingleDoc.index_name(practitioner_role_index_name)
-      PractitionerRolesSingleDoc.create!
-    end
-
-    provider_index_name = "provider_#{each_tenant}_rw"
-    unless es1_index.exists(index: provider_index_name)
-      PractitionerRolesTenantV3.index_name(provider_index_name)
-      PractitionerRolesTenantV3.create!
-    end
-
-    organization_affiliation_index_name = "organization_affiliation_#{each_tenant}_rw"
-    unless es1_index.exists(index: organization_affiliation_index_name)
-      OrganizationAffiliationSingleDoc.index_name(organization_affiliation_index_name)
-      OrganizationAffiliationSingleDoc.create!
-    end
-
-    facility_index_name = "facility_#{each_tenant}_rw"
-    unless es1_index.exists(index: facility_index_name)
-      OrganizationAffiliationTenantV3.index_name(facility_index_name)
-      OrganizationAffiliationTenantV3.create!
-    end
-
-    practice_index_name = "practice_#{each_tenant}_rw"
-    unless es1_index.exists(index: practice_index_name)
-      OrganizationAffiliationTenantV3.index_name(practice_index_name)
-      OrganizationAffiliationTenantV3.create!
+    index_name_and_class["es_1"].each do |index_prefix, klass|
+      index_name = index_prefix == "nppes_master" ?  index_prefix :  index_prefix + each_tenant + "_rw"
+      unless es1_index.exists(index: index_name)
+        klass.index_name(index_name)
+        klass.create!
+      end
+      es1_index.put_alias index: index_name, name: index_name[0..-4] unless %w[nppes_master facility_by_location_].any? (index_prefix)
     end
   end
-
-  nppes_index_name = "nppes_master"
-  unless es1_index.exists(index: nppes_index_name)
-    NppesMasterIndex.index_name(nppes_index_name)
-    NppesMasterIndex.create!
-  end
-
-  if all
-    facility_by_location_index_name = "facility_by_location_rw"
-    unless es1_index.exists(index: facility_by_location_index_name)
-      FacilityByLocationIndex.index_name(facility_by_location_index_name)
-      FacilityByLocationIndex.create!
-    end
-  end
-
 end
-
 #-------------------------------------------------------------------------------------
 
 def get_time_taken(meta_detail)
