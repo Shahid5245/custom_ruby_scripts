@@ -14,10 +14,10 @@ DisplayOptions = ->(title, options) {
   puts "\n\033[33m#{title}:\033[0m" if title.present?
   options.each_with_index { |o,i| puts "#{i+1}. #{o.capitalize}" } if options.present?
 }
+LoadFile = ->(git_base_url, files_to_load){ files_to_load.each { |filename| eval(URI.open(git_base_url + filename).read) } }
 
 DisplayOptions.call(nil, ['Load result hash', 'Load Custom script'])
 load_choice = gets.to_i
 files_to_load = load_choice == 2 ? [files_to_load.last] : files_to_load
-
-files_to_load.each { |filename| eval(URI.open(git_base_url + filename).read) }
+LoadFile.call(git_base_url, files_to_load)
 nil
