@@ -1,10 +1,9 @@
 
 def fuzzy_org_match(org_aff_id)
-
-  if org_aff = OrganizationAffiliation.find_by(id: org_aff_id)
-  elsif fac = Facility.find_by(id: org_aff_id)
+  if (org_aff = OrganizationAffiliation.find_by(id: org_aff_id))
+  elsif (fac = Facility.find_by(id: org_aff_id))
     org_aff = fac.organization_affiliation
-  elsif org = OrganizationAffiliation.find_by(stableId: org_aff_id)
+  elsif (org = OrganizationAffiliation.find_by(stableId: org_aff_id))
     org_aff = org
   else
     return "Given id is not found in the database"
@@ -19,7 +18,6 @@ def fuzzy_org_match(org_aff_id)
   medicare_number_identifier = Utils::RecordIdentifiers.new.fetch_identifier_value(org_aff.facility.identifier, 'MCR')
   medicaid_number_identifier = Utils::RecordIdentifiers.new.fetch_identifier_value(org_aff.facility.identifier, 'MCD')
   location = location.present? ? location : nil
-
   formated_name, formated_alias = Utils::Property.format_name_and_alias(org_aff.facility)
 
   template_search_params = {
@@ -51,22 +49,20 @@ def fuzzy_org_match(org_aff_id)
     }
   }
 
-
   res = ELASTICSEARCH_CLIENT.search_template(index: ENV['ORGANIZATION_AFFILIATION_MASTER_INDEX'], body: template_search_params)
   json_template = template_search_params.to_json
   puts json_template
-  return {"matched_es_count"=> res["hits"]["total"]["value"]}
+  {"matched_es_count"=> res["hits"]["total"]["value"]}
 end
 
 #-------------------------------------------------------------------------------------
 
 def fuzzy_pr_match(pr_role_id)
-
-  if pr_role = PractitionerRole.find_by(id: pr_role_id)
+  if (pr_role = PractitionerRole.find_by(id: pr_role_id))
     practitioner = pr_role.practitioner
-  elsif pr = Practitioner.find_by(id: pr_role_id)
+  elsif (pr = Practitioner.find_by(id: pr_role_id))
     practitioner = pr
-  elsif pr_st = Practitioner.find_by(stableId: pr_role_id)
+  elsif (pr_st = Practitioner.find_by(stableId: pr_role_id))
     practitioner = pr_st
   else
     return "Given id is not found in the database"
@@ -75,7 +71,6 @@ def fuzzy_pr_match(pr_role_id)
   location = practitioner.practitioner_role.locations.first
   ln_identifier = ''
   stable_ids = practitioner.stableId
-
   npi_identifier = Utils::RecordIdentifiers.new.fetch_identifier(practitioner, 'NPI')[0]
   dea_number_identifier = Utils::RecordIdentifiers.new.fetch_identifier_value(practitioner.identifier, 'DEA')[0]
   license_number_identifier = Utils::RecordIdentifiers.new.split_license_value(practitioner.identifier, 'LN')
@@ -115,21 +110,13 @@ def fuzzy_pr_match(pr_role_id)
   res = ELASTICSEARCH_CLIENT.search_template(index: ENV['PRACTITIONER_ROLE_MASTER_INDEX'], body: template_search_params)
   json_template = template_search_params.to_json
   puts json_template
-  return {"matched_es_count"=> res["hits"]["total"]["value"]}
-end
-
-#-------------------------------------------------------------------------------------
-
-def send_stat_log
-  Stat::StatLogCheck.send_stat_logs(MetaDetail.order(:created_at).last)
+  {"matched_es_count"=> res["hits"]["total"]["value"]}
 end
 
 #-------------------------------------------------------------------------------------
 
 def create_all_indexes
-  es1_index = Chewy.client.indices
-  es2_index = ELASTICSEARCH_CLIENT.indices
-  tenant_names = Utils::Property.new.get_all_active_tenant_key - ["qa-tenant"]
+  es1_index, es2_index = ChewyClientIndex, ElasticClientIndex
   index_name_and_class = {
     "es_1" => {
       "practitioner_role_" => PractitionerRolesSingleDoc, "provider_" => PractitionerRolesTenantV3,
@@ -148,14 +135,14 @@ def create_all_indexes
     end
   end
 
-  tenant_names.each do |each_tenant|
+  AllTenants.each do |each_tenant|
     index_name_and_class["es_1"].each do |index_prefix, klass|
       index_name = index_prefix == "nppes_master" ?  index_prefix :  index_prefix + each_tenant + "_rw"
       unless es1_index.exists(index: index_name)
         klass.index_name(index_name)
         klass.create!
       end
-      es1_index.put_alias index: index_name, name: index_name[0..-4] unless %w[nppes_master facility_by_location_].any? (index_prefix)
+      es1_index.put_alias index: index_name, name: index_name[0..-4] unless %w[nppes_master facility_by_location_].any?(index_prefix)
     end
   end
 end
@@ -222,13 +209,13 @@ def group_st_id(db_table_name)
 end
 
 def fetch_location(root_table_id)
-  if pr_obj = Practitioner.find_by(id:root_table_id)
+  if (pr_obj = Practitioner.find_by(id: root_table_id))
     pr_obj.practitioner_role.locations
-  elsif pr_role_obj = PractitionerRole.find_by(id:root_table_id)
+  elsif (pr_role_obj = PractitionerRole.find_by(id: root_table_id))
     pr_role_obj.locations
-  elsif org_obj = OrganizationAffiliation.find_by(id:root_table_id)
+  elsif (org_obj = OrganizationAffiliation.find_by(id: root_table_id))
     org_obj.locations
-  elsif fac_obj = Facility.find_by(id:root_table_id)
+  elsif (fac_obj = Facility.find_by(id: root_table_id))
     fac_obj.organization_affiliation.locations
   end
 end
@@ -254,66 +241,38 @@ end
 
 #-------------------------------------------------------------------------------------
 
-def puts_message(header, messages_arr=nil)
-  yellow = "\033[33m"
-  reset = "\033[0m"
-  puts "\n#{yellow}#{header}:#{reset}"
-  return unless messages_arr.present?
-  for i in 0..messages_arr.size-1
-    puts "#{i+1}. #{messages_arr[i]}"
-  end
-end
-
-
 def create_trigger_message
-  puts_message("Choose Entity", ['Facility', 'Provider', 'Nppes'])
-  entity = Integer(gets())
+  DisplayOptions.call("Choose Entity", ['Facility', 'Provider', 'Nppes'])
+  entity = gets.to_i
   if entity == 1
-    source = 'wa-amerigroup'
-    profile = PROFILE_URL['organization_affiliation']
-    batchId = "facility:#{SecureRandom.uuid}"
+    source, profile, batchId = 'wa-amerigroup', OrgAffProfile, "facility:#{SecureRandom.uuid}"
   elsif entity == 2
-    source = 'wa-amerigroup'
-    profile = PROFILE_URL['practitioner_role']
-    batchId = "provider:#{SecureRandom.uuid}"
-  
+    source, profile, batchId = 'wa-amerigroup', PrRoleProfile, "provider:#{SecureRandom.uuid}"
   elsif entity == 3
-    source = 'us-nppes'
-    profile = PROFILE_URL['nppes_master']
-    batchId = "nppes:#{SecureRandom.uuid}"
+    source, profile, batchId = 'us-nppes', NppesProfile, "nppes:#{SecureRandom.uuid}"
   else
     return
   end
 
-  puts_message("Enter Filepath")
+  DisplayOptions.call("Enter Filepath")
   filepath = gets().chomp
 
   triger_message = {
-    "meta"=> {
-        "SourceCode"=> source,
-        "SourceFilePath"=> filepath,
-        "profile"=> profile,
-        "batchId"=> batchId
-    },
-    "processRules"=> {
-        "batchSize"=> 1000,
-        "ingestionMode"=> "delta",
-        "forceReMatchOnDupes"=> true
-    }
+    "meta"=> { "SourceCode"=> source, "SourceFilePath"=> filepath, "profile"=> profile, "batchId"=> batchId },
+    "processRules"=> { "batchSize"=> 1000, "ingestionMode"=> "delta", "forceReMatchOnDupes"=> true }
   }
 
-  puts_message("Choose the Trigger message type", ["Create trigger message", "Modify trigger message"])
+  DisplayOptions.call("Choose the Trigger message type", ["Create trigger message", "Modify trigger message"])
   trig_mesg_type = Integer(gets())
-
   if trig_mesg_type == 2
-    puts_message("Choose the Process type", ["Source", "Injestionmode"])
+    DisplayOptions.call("Choose the Process type", ["Source", "Injestionmode"])
     modify = Integer(gets())
     if modify == 1
-      puts_message("Enter Source name")
+      DisplayOptions.call("Enter Source name")
       source = gets().chomp
       triger_message["meta"]["SourceCode"] = source
     elsif modify == 2
-      puts_message("Choose the Injestionmode type", ["delta", "overwrite", "retirebatch"])
+      DisplayOptions.call("Choose the Injestionmode type", ["delta", "overwrite", "retirebatch"])
       injestion_mode = Integer(gets())
       if injestion_mode == 2
         triger_message["processRules"]["ingestionMode"] = 'overwrite'
@@ -336,7 +295,6 @@ def create_tenant_configs
 end;1
 
 #-------------------------------------------------------------------------------------
-
 
 def fetch_matching_st_ids_records_org(stableids='', skip_1_count=false)
   stable_ids = stableids.present? ? [stableids].flatten : OrganizationAffiliation.pluck(:stableId).uniq
@@ -369,7 +327,6 @@ def fetch_matching_st_ids_records_org(stableids='', skip_1_count=false)
 end;1
 
 #-------------------------------------------------------------------------------------
-
 
 def fetch_matching_st_ids_records_pr(stableids='', skip_1_count=false)
   stable_ids = stableids.present? ? [stableids].flatten : Practitioner.pluck(:stableId).uniq
