@@ -120,6 +120,12 @@ end
 
 #-------------------------------------------------------------------------------------
 
+def send_stat_log
+  Stat::StatLogCheck.send_stat_logs(MetaDetail.order(:created_at).last)
+end
+
+#-------------------------------------------------------------------------------------
+
 def create_all_indexes
   es1_index = Chewy.client.indices
   es2_index = ELASTICSEARCH_CLIENT.indices
@@ -216,13 +222,13 @@ def group_st_id(db_table_name)
 end
 
 def fetch_location(root_table_id)
-  if (pr_obj = Practitioner.find_by(id: root_table_id))
+  if pr_obj = Practitioner.find_by(id:root_table_id)
     pr_obj.practitioner_role.locations
-  elsif (pr_role_obj = PractitionerRole.find_by(id: root_table_id))
+  elsif pr_role_obj = PractitionerRole.find_by(id:root_table_id)
     pr_role_obj.locations
-  elsif (org_obj = OrganizationAffiliation.find_by(id: root_table_id))
+  elsif org_obj = OrganizationAffiliation.find_by(id:root_table_id)
     org_obj.locations
-  elsif (fac_obj = Facility.find_by(id: root_table_id))
+  elsif fac_obj = Facility.find_by(id:root_table_id)
     fac_obj.organization_affiliation.locations
   end
 end
@@ -282,7 +288,7 @@ def create_trigger_message
   puts_message("Enter Filepath")
   filepath = gets().chomp
 
-  trigger_message = {
+  triger_message = {
     "meta"=> {
         "SourceCode"=> source,
         "SourceFilePath"=> filepath,
@@ -291,11 +297,11 @@ def create_trigger_message
     },
     "processRules"=> {
         "batchSize"=> 1000,
-        "ingestionMode"=> "delta"
+        "ingestionMode"=> "delta",
+        "forceReMatchOnDupes"=> true
     }
   }
 
-  trigger_message["processRules"]["forceReMatchOnDupes"] = true unless entity == 3
   puts_message("Choose the Trigger message type", ["Create trigger message", "Modify trigger message"])
   trig_mesg_type = Integer(gets())
 
@@ -305,20 +311,20 @@ def create_trigger_message
     if modify == 1
       puts_message("Enter Source name")
       source = gets().chomp
-      trigger_message["meta"]["SourceCode"] = source
+      triger_message["meta"]["SourceCode"] = source
     elsif modify == 2
       puts_message("Choose the Injestionmode type", ["delta", "overwrite", "retirebatch"])
       injestion_mode = Integer(gets())
       if injestion_mode == 2
-        trigger_message["processRules"]["ingestionMode"] = 'overwrite'
+        triger_message["processRules"]["ingestionMode"] = 'overwrite'
       elsif injestion_mode == 3
-        trigger_message["processRules"]["ingestionMode"] = 'batchswap'
-        trigger_message["processRules"]["retireBatchId"] = [batchId]
+        triger_message["processRules"]["ingestionMode"] = 'batchswap'
+        triger_message["processRules"]["retireBatchId"] = [batchId]
       end
     end
   end
 
-  puts trigger_message.to_json
+  puts triger_message.to_json
 end
 
 #-------------------------------------------------------------------------------------
@@ -394,23 +400,5 @@ def fetch_matching_st_ids_records_pr(stableids='', skip_1_count=false)
   puts result_hash.to_json
 end;1
 
-
-#-------------------------------------------------------------------------------------
-
-
-def all_tenant
-  Utils::Property.new.get_all_active_tenant_key.reject{|i| i=='qa-tenant'}
-end
-
-
-def get_source(tenant=nil)
-  if tenant.present?
-    Utils::Property.new.get_source_by_tenant(tenant, include=true)
-  else
-    all_tenant.each_with_index {|t,i| puts "#{i+1}. #{t}"}
-    tenant_choice = gets.to_i - 1
-    Utils::Property.new.get_source_by_tenant(all_tenant[tenant_choice], include=true)
-  end
-end
 
 #-------------------------------------------------------------------------------------
